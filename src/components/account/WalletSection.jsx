@@ -14,6 +14,7 @@ import {
   ArrowDown,
   ArrowUp,
   Eye,
+  EyeOff,
   MoreVertical,
   Check,
   CheckCircle2,
@@ -193,6 +194,7 @@ const BankLogo = ({ bankName, className = "w-10 h-10" }) => {
 export const WalletSection = ({ onBack }) => {
   const { currentUser, updateProfile } = useAuth();
   const { 
+    users,
     commissionRules, 
     transactions, 
     withdrawals, 
@@ -244,10 +246,7 @@ export const WalletSection = ({ onBack }) => {
 
   // Withdrawal 3-Step Wizard state
   const [withdrawStep, setWithdrawStep] = useState(1);
-  const [selectedBankId, setSelectedBankId] = useState(() => {
-    const def = bankAccounts.find(b => b.isDefault);
-    return def ? def.id : (bankAccounts[0]?.id || '');
-  });
+  const [selectedBankId, setSelectedBankId] = useState('');
   const [withdrawAmountInput, setWithdrawAmountInput] = useState('');
   const [withdrawError, setWithdrawError] = useState('');
   const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
@@ -255,7 +254,7 @@ export const WalletSection = ({ onBack }) => {
 
   // Add Bank Account Form State
   const [newBankForm, setNewBankForm] = useState({
-    accountHolder: currentUser?.name || 'Dr. Rajesh Sharma',
+    accountHolder: currentUser?.name || '',
     bankName: '',
     accountNumber: '',
     confirmAccountNumber: '',
@@ -265,11 +264,50 @@ export const WalletSection = ({ onBack }) => {
   });
   const [addBankError, setAddBankError] = useState('');
   const [addBankSuccess, setAddBankSuccess] = useState(false);
+  const [showAccountNumber, setShowAccountNumber] = useState(false);
+
+  // Clear bank form and prevent browser autofill collisions when modal opens
+  useEffect(() => {
+    if (isAddBankModalOpen) {
+      setNewBankForm({
+        accountHolder: currentUser?.name || '',
+        bankName: '',
+        accountNumber: '',
+        confirmAccountNumber: '',
+        ifsc: '',
+        accountType: 'Savings',
+        setAsDefault: userBankAccounts.length === 0
+      });
+      setShowAccountNumber(false);
+    }
+  }, [isAddBankModalOpen, currentUser]);
+
+  // User checking
+  const isDemoMaster = currentUser?.id === 'usr-000' || currentUser?.referralCode === 'DG10000';
+  const isRohan = currentUser?.id === 'usr-008' || currentUser?.referralCode === 'DG10008';
+  const isDrRajesh = isDemoMaster;
+
+  // Bank accounts strictly scoped to the logged-in user
+  const userBankAccounts = useMemo(() => {
+    const userBanks = bankAccounts.filter(b => b.userId === currentUser?.id);
+    if (userBanks.length > 0) return userBanks;
+    if (isDemoMaster) {
+      return INITIAL_BANK_ACCOUNTS.map(b => ({ ...b, userId: currentUser?.id || 'usr-000' }));
+    }
+    return [];
+  }, [bankAccounts, currentUser, isDemoMaster]);
+
+  // Withdrawal history strictly scoped to the logged-in user
+  const userWithdrawalHistory = useMemo(() => {
+    const userWithdrawals = withdrawalHistory.filter(w => w.userId === currentUser?.id);
+    if (userWithdrawals.length > 0) return userWithdrawals;
+    if (isDemoMaster) {
+      return INITIAL_WITHDRAWAL_HISTORY.map(w => ({ ...w, userId: currentUser?.id || 'usr-000' }));
+    }
+    return [];
+  }, [withdrawalHistory, currentUser, isDemoMaster]);
 
   // Metrics calculation
-  const isRohan = currentUser?.id === 'usr-008' || currentUser?.referralCode === 'DG10008';
-  const isDrRajesh = currentUser?.id === 'usr-000' || currentUser?.referralCode === 'DG10000';
-
   const userTransactions = transactions?.filter(t => t.userId === currentUser?.id) || [];
   const txCommissionTotal = userTransactions
     .filter(t => t.type === 'COMMISSION_CREDIT')
@@ -290,24 +328,32 @@ export const WalletSection = ({ onBack }) => {
       ? 14580
       : (activeUser?.wallet?.balance !== undefined ? activeUser.wallet.balance : (currentUser?.wallet?.balance !== undefined ? currentUser.wallet.balance : txCommissionTotal));
   
-  // Compute pending and withdrawn from withdrawalHistory
+  // Compute pending and withdrawn from userWithdrawalHistory
   const pendingWithdrawalAmount = useMemo(() => {
-    return withdrawalHistory
+    return userWithdrawalHistory
       .filter(w => w.status === 'Pending')
       .reduce((sum, w) => sum + Number(w.amount || 0), 0);
-  }, [withdrawalHistory]);
+  }, [userWithdrawalHistory]);
 
   const totalWithdrawnAmount = useMemo(() => {
-    const sum = withdrawalHistory
+    const sum = userWithdrawalHistory
       .filter(w => w.status === 'Successful')
       .reduce((sum, w) => sum + Number(w.amount || 0), 0);
     return isRohan ? 0 : (isDrRajesh ? (sum || 13870) : sum);
-  }, [withdrawalHistory, isRohan, isDrRajesh]);
+  }, [userWithdrawalHistory, isRohan, isDrRajesh]);
 
   // Selected bank for withdrawal
   const activeSelectedBank = useMemo(() => {
-    return bankAccounts.find(b => b.id === selectedBankId) || bankAccounts[0] || null;
-  }, [bankAccounts, selectedBankId]);
+    return userBankAccounts.find(b => b.id === selectedBankId) || userBankAccounts[0] || null;
+  }, [userBankAccounts, selectedBankId]);
+
+  // Keep selectedBankId in sync with userBankAccounts
+  useEffect(() => {
+    if (!selectedBankId || !userBankAccounts.some(b => b.id === selectedBankId)) {
+      const def = userBankAccounts.find(b => b.isDefault) || userBankAccounts[0];
+      setSelectedBankId(def ? def.id : '');
+    }
+  }, [userBankAccounts, selectedBankId]);
 
   // Remaining balance preview in step 2
   const numericWithdrawAmount = Number(withdrawAmountInput) || 0;
@@ -315,7 +361,7 @@ export const WalletSection = ({ onBack }) => {
 
   // Filtered withdrawal history table
   const filteredWithdrawals = useMemo(() => {
-    return withdrawalHistory.filter(item => {
+    return userWithdrawalHistory.filter(item => {
       // Status filter
       if (statusFilter !== 'ALL' && item.status.toUpperCase() !== statusFilter.toUpperCase()) {
         return false;
@@ -330,7 +376,7 @@ export const WalletSection = ({ onBack }) => {
       }
       return true;
     });
-  }, [withdrawalHistory, statusFilter, dateFilter]);
+  }, [userWithdrawalHistory, statusFilter, dateFilter]);
 
   // Set default bank account
   const handleSetDefaultBank = (bankId) => {
@@ -343,22 +389,19 @@ export const WalletSection = ({ onBack }) => {
 
   // Remove bank account
   const handleRemoveBank = (bankId) => {
-    const target = bankAccounts.find(b => b.id === bankId);
+    const target = userBankAccounts.find(b => b.id === bankId);
     if (!target) return;
-    if (bankAccounts.length <= 1) {
-      alert("You must keep at least one bank account on file.");
-      return;
-    }
     if (window.confirm(`Are you sure you want to remove ${target.bankName} (${target.maskedNumber})?`)) {
       setBankAccounts(prev => {
         const remaining = prev.filter(b => b.id !== bankId);
-        if (target.isDefault && remaining.length > 0) {
-          remaining[0].isDefault = true;
+        const remainingForUser = remaining.filter(b => b.userId === currentUser?.id);
+        if (target.isDefault && remainingForUser.length > 0) {
+          remainingForUser[0].isDefault = true;
         }
         return remaining;
       });
       if (selectedBankId === bankId) {
-        setSelectedBankId(bankAccounts.find(b => b.id !== bankId)?.id || '');
+        setSelectedBankId(userBankAccounts.find(b => b.id !== bankId)?.id || '');
       }
       setActiveBankDropdown(null);
     }
@@ -393,22 +436,24 @@ export const WalletSection = ({ onBack }) => {
       return;
     }
 
+    const currentUserId = currentUser?.id || 'usr-new';
+
     const newAccount = {
       id: `bank-${Date.now()}`,
-      userId: currentUser?.id || 'usr-000',
+      userId: currentUserId,
       bankName: bankName.trim(),
       accountHolder: accountHolder.trim(),
       accountNumber: accountNumber.trim(),
       maskedNumber: maskAccountNumber(accountNumber),
       ifsc: ifsc.trim().toUpperCase(),
       accountType,
-      isDefault: setAsDefault || bankAccounts.length === 0,
+      isDefault: setAsDefault || userBankAccounts.length === 0,
       isVerified: true
     };
 
     setBankAccounts(prev => {
       if (newAccount.isDefault) {
-        return [newAccount, ...prev.map(b => ({ ...b, isDefault: false }))];
+        return [newAccount, ...prev.map(b => b.userId === currentUserId ? { ...b, isDefault: false } : b)];
       }
       return [...prev, newAccount];
     });
@@ -420,7 +465,7 @@ export const WalletSection = ({ onBack }) => {
       setAddBankSuccess(false);
       setIsAddBankModalOpen(false);
       setNewBankForm({
-        accountHolder: currentUser?.name || 'Dr. Rajesh Sharma',
+        accountHolder: currentUser?.name || '',
         bankName: '',
         accountNumber: '',
         confirmAccountNumber: '',
@@ -428,16 +473,27 @@ export const WalletSection = ({ onBack }) => {
         accountType: 'Savings',
         setAsDefault: false
       });
+      // Now that bank account is added, seamlessly open Withdrawal modal!
+      setWithdrawStep(1);
+      setSelectedBankId(newAccount.id);
+      setIsWithdrawModalOpen(true);
     }, 1000);
   };
 
   // Open Withdrawal Modal
   const handleOpenWithdrawModal = () => {
+    // If the user has no bank accounts, require them to provide bank details first!
+    if (userBankAccounts.length === 0) {
+      setAddBankError("Please add your bank account details before initiating your first withdrawal.");
+      setIsAddBankModalOpen(true);
+      return;
+    }
+
     setWithdrawStep(1);
     setWithdrawAmountInput('');
     setWithdrawError('');
     setWithdrawalSuccessData(null);
-    const def = bankAccounts.find(b => b.isDefault) || bankAccounts[0];
+    const def = userBankAccounts.find(b => b.isDefault) || userBankAccounts[0];
     if (def) setSelectedBankId(def.id);
     setIsWithdrawModalOpen(true);
   };
@@ -646,20 +702,14 @@ export const WalletSection = ({ onBack }) => {
 
         <button
           type="button"
-          onClick={() => setIsAddBankModalOpen(true)}
+          onClick={() => {
+            setAddBankError('');
+            setIsAddBankModalOpen(true);
+          }}
           className="bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-800 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 shadow-2xs transition-all cursor-pointer"
         >
           <Building className="w-4 h-4 text-slate-600" />
           <span>Manage Bank Accounts</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setIsTxHistoryModalOpen(true)}
-          className="bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-800 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 shadow-2xs transition-all cursor-pointer"
-        >
-          <FileText className="w-4 h-4 text-slate-600" />
-          <span>Transaction History</span>
         </button>
       </div>
 
@@ -689,86 +739,106 @@ export const WalletSection = ({ onBack }) => {
 
           {/* Bank Accounts List */}
           <div className="space-y-3 pt-1">
-            {bankAccounts.map((bank) => {
-              const isDefault = bank.isDefault;
-              return (
-                <div
-                  key={bank.id}
-                  className={`rounded-2xl p-4 flex items-center justify-between transition-all relative ${
-                    isDefault
-                      ? 'border-2 border-[#86efac] bg-[#fbfdfc]'
-                      : 'border border-slate-200 bg-white hover:border-slate-300'
-                  }`}
+            {userBankAccounts.length === 0 ? (
+              <div className="py-7 px-4 text-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 flex flex-col items-center justify-center">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#15803d] flex items-center justify-center mb-3">
+                  <Building className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-slate-800 text-sm mb-1">No Bank Account Added Yet</h4>
+                <p className="text-xs text-slate-500 max-w-xs mb-4">
+                  Please add your bank account details before requesting your first withdrawal payout.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsAddBankModalOpen(true)}
+                  className="px-4 py-2.5 bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  {/* Left: Bank Logo + Info */}
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <BankLogo bankName={bank.bankName} className="w-10 h-10" />
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-slate-900 text-sm truncate">
-                        {bank.bankName}
-                      </h3>
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        A/c No: {bank.maskedNumber}
-                      </p>
-                      <p className="text-xs text-slate-400 font-mono">
-                        IFSC: {bank.ifsc}
-                      </p>
+                  <Plus className="w-4 h-4" />
+                  <span>Add Bank Account</span>
+                </button>
+              </div>
+            ) : (
+              userBankAccounts.map((bank) => {
+                const isDefault = bank.isDefault;
+                return (
+                  <div
+                    key={bank.id}
+                    className={`rounded-2xl p-4 flex items-center justify-between transition-all relative ${
+                      isDefault
+                        ? 'border-2 border-[#86efac] bg-[#fbfdfc]'
+                        : 'border border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    {/* Left: Bank Logo + Info */}
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <BankLogo bankName={bank.bankName} className="w-10 h-10" />
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-slate-900 text-sm truncate">
+                          {bank.bankName}
+                        </h3>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">
+                          A/c No: {bank.maskedNumber}
+                        </p>
+                        <p className="text-xs text-slate-400 font-mono">
+                          IFSC: {bank.ifsc}
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Right: Default Badge / Radio + 3-Dot Options */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isDefault ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#edf7ee] text-[#15803d] border border-[#d3eed9]">
-                        <Check className="w-3 h-3 text-[#15803d]" />
-                        <span>Default</span>
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleSetDefaultBank(bank.id)}
-                        className="w-5 h-5 rounded-full border-2 border-slate-300 hover:border-emerald-500 transition-colors cursor-pointer"
-                        title="Set as Default Account"
-                      />
-                    )}
+                    {/* Right: Default Badge / Radio + 3-Dot Options */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isDefault ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#edf7ee] text-[#15803d] border border-[#d3eed9]">
+                          <Check className="w-3 h-3 text-[#15803d]" />
+                          <span>Default</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSetDefaultBank(bank.id)}
+                          className="w-5 h-5 rounded-full border-2 border-slate-300 hover:border-emerald-500 transition-colors cursor-pointer"
+                          title="Set as Default Account"
+                        />
+                      )}
 
-                    {/* 3-Dot Action Button */}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setActiveBankDropdown(activeBankDropdown === bank.id ? null : bank.id)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
+                      {/* 3-Dot Action Button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveBankDropdown(activeBankDropdown === bank.id ? null : bank.id)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
 
-                      {activeBankDropdown === bank.id && (
-                        <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-20 animate-in fade-in zoom-in-95 duration-100 text-xs font-medium">
-                          {!isDefault && (
+                        {activeBankDropdown === bank.id && (
+                          <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-slate-100 py-1.5 z-20 animate-in fade-in zoom-in-95 duration-100 text-xs font-medium">
+                            {!isDefault && (
+                              <button
+                                type="button"
+                                onClick={() => handleSetDefaultBank(bank.id)}
+                                className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Set as Default</span>
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => handleSetDefaultBank(bank.id)}
-                              className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              onClick={() => handleRemoveBank(bank.id)}
+                              className="w-full text-left px-3 py-2 text-rose-600 hover:bg-rose-50 flex items-center gap-2"
                             >
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Set as Default</span>
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Remove Account</span>
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveBank(bank.id)}
-                            className="w-full text-left px-3 py-2 text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                            <span>Remove Account</span>
-                          </button>
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
 
           {/* Withdrawal Information Notice Box */}
@@ -1117,59 +1187,87 @@ export const WalletSection = ({ onBack }) => {
                 {/* STEP 1: Select Bank Account */}
                 {withdrawStep === 1 && (
                   <div className="space-y-4 pt-1">
-                    <p className="text-xs text-slate-600 font-medium">
-                      Choose which verified bank account to transfer your funds to:
-                    </p>
+                    {userBankAccounts.length === 0 ? (
+                      <div className="p-5 rounded-2xl bg-amber-50/80 border border-amber-200 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                          <Building className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h5 className="font-bold text-slate-900 text-sm">Bank Details Required</h5>
+                          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto leading-relaxed">
+                            As a new distributor, you must provide your bank details before initiating your first withdrawal.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsWithdrawModalOpen(false);
+                            setAddBankError("Please add your bank account details before initiating your first withdrawal.");
+                            setIsAddBankModalOpen(true);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Add Bank Details Now</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-slate-600 font-medium">
+                          Choose which verified bank account to transfer your funds to:
+                        </p>
 
-                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-                      {bankAccounts.map((b) => {
-                        const isSelected = selectedBankId === b.id;
-                        return (
-                          <div
-                            key={b.id}
-                            onClick={() => setSelectedBankId(b.id)}
-                            className={`p-3.5 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
-                              isSelected
-                                ? 'border-2 border-[#15803d] bg-emerald-50/20 shadow-2xs'
-                                : 'border-slate-200 hover:border-slate-300 bg-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="radio"
-                                name="selectedBank"
-                                checked={isSelected}
-                                onChange={() => setSelectedBankId(b.id)}
-                                className="accent-[#15803d] w-4 h-4"
-                              />
-                              <div>
-                                <h5 className="font-bold text-xs sm:text-sm text-slate-900">{b.bankName}</h5>
-                                <p className="text-[11px] font-mono text-slate-500 mt-0.5">
-                                  {b.maskedNumber} • {b.ifsc}
-                                </p>
+                        <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                          {userBankAccounts.map((b) => {
+                            const isSelected = selectedBankId === b.id;
+                            return (
+                              <div
+                                key={b.id}
+                                onClick={() => setSelectedBankId(b.id)}
+                                className={`p-3.5 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
+                                  isSelected
+                                    ? 'border-2 border-[#15803d] bg-emerald-50/20 shadow-2xs'
+                                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="radio"
+                                    name="selectedBank"
+                                    checked={isSelected}
+                                    onChange={() => setSelectedBankId(b.id)}
+                                    className="accent-[#15803d] w-4 h-4"
+                                  />
+                                  <div>
+                                    <h5 className="font-bold text-xs sm:text-sm text-slate-900">{b.bankName}</h5>
+                                    <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                                      {b.maskedNumber} • {b.ifsc}
+                                    </p>
+                                  </div>
+                                </div>
+                                {b.isDefault && (
+                                  <span className="text-[10px] font-bold bg-[#edf7ee] text-[#15803d] px-2 py-0.5 rounded-full border border-emerald-200">
+                                    Default
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                            {b.isDefault && (
-                              <span className="text-[10px] font-bold bg-[#edf7ee] text-[#15803d] px-2 py-0.5 rounded-full border border-emerald-200">
-                                Default
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                            );
+                          })}
+                        </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsWithdrawModalOpen(false);
-                        setIsAddBankModalOpen(true);
-                      }}
-                      className="text-xs font-bold text-[#15803d] hover:underline flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add a new bank account</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsWithdrawModalOpen(false);
+                            setIsAddBankModalOpen(true);
+                          }}
+                          className="text-xs font-bold text-[#15803d] hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add another bank account</span>
+                        </button>
+                      </>
+                    )}
 
                     <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                       <button
@@ -1181,8 +1279,13 @@ export const WalletSection = ({ onBack }) => {
                       </button>
                       <button
                         type="button"
+                        disabled={userBankAccounts.length === 0 || !selectedBankId}
                         onClick={handleStep1Continue}
-                        className="px-5 py-2.5 rounded-xl bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 ${
+                          userBankAccounts.length === 0 || !selectedBankId
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'bg-[#15803d] hover:bg-[#166534] text-white cursor-pointer'
+                        }`}
                       >
                         <span>Continue</span>
                         <ChevronRight className="w-4 h-4" />
@@ -1361,9 +1464,17 @@ export const WalletSection = ({ onBack }) => {
             </div>
 
             {addBankError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{addBankError}</span>
+              <div className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 ${
+                addBankError.includes("before initiating") || addBankError.includes("first withdrawal")
+                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}>
+                <AlertCircle className={`w-4 h-4 shrink-0 ${
+                  addBankError.includes("before initiating") || addBankError.includes("first withdrawal")
+                    ? 'text-amber-600'
+                    : 'text-rose-600'
+                }`} />
+                <span className="font-medium">{addBankError}</span>
               </div>
             )}
 
@@ -1374,11 +1485,15 @@ export const WalletSection = ({ onBack }) => {
                 <p className="text-xs text-slate-500">Account verified and saved for withdrawals.</p>
               </div>
             ) : (
-              <form onSubmit={handleAddBankSubmit} className="space-y-3 text-xs">
+              <form onSubmit={handleAddBankSubmit} className="space-y-3 text-xs" autoComplete="off">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Account Holder Name *</label>
                   <input
                     type="text"
+                    name="beneficiary_fullname"
+                    id="beneficiary_fullname"
+                    autoComplete="off"
+                    spellCheck="false"
                     required
                     value={newBankForm.accountHolder}
                     onChange={(e) => setNewBankForm({ ...newBankForm, accountHolder: e.target.value })}
@@ -1391,34 +1506,83 @@ export const WalletSection = ({ onBack }) => {
                   <label className="block font-bold text-slate-700 mb-1">Bank Name *</label>
                   <input
                     type="text"
+                    name="financial_institution_title"
+                    id="financial_institution_title"
+                    autoComplete="off"
+                    autoCapitalize="words"
+                    spellCheck="false"
+                    list="popular-bank-list"
                     required
                     value={newBankForm.bankName}
                     onChange={(e) => setNewBankForm({ ...newBankForm, bankName: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#15803d]"
                     placeholder="e.g. State Bank of India, HDFC Bank, ICICI"
                   />
+                  <datalist id="popular-bank-list">
+                    <option value="State Bank of India" />
+                    <option value="HDFC Bank" />
+                    <option value="ICICI Bank" />
+                    <option value="Punjab National Bank" />
+                    <option value="Bank of Baroda" />
+                    <option value="Axis Bank" />
+                    <option value="Canara Bank" />
+                    <option value="Union Bank of India" />
+                    <option value="Kotak Mahindra Bank" />
+                    <option value="IndusInd Bank" />
+                  </datalist>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Account Number *</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-slate-700">Account Number *</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowAccountNumber(!showAccountNumber)}
+                        className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showAccountNumber ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Hide</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Show</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <input
-                      type="password"
+                      type="text"
+                      inputMode="numeric"
+                      name="bank_account_digit_sequence"
+                      id="bank_account_digit_sequence"
+                      autoComplete="off"
+                      spellCheck="false"
                       required
                       value={newBankForm.accountNumber}
-                      onChange={(e) => setNewBankForm({ ...newBankForm, accountNumber: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono focus:outline-none focus:border-[#15803d]"
-                      placeholder="Account Number"
+                      onChange={(e) => setNewBankForm({ ...newBankForm, accountNumber: e.target.value.replace(/\D/g, '') })}
+                      style={{ WebkitTextSecurity: showAccountNumber ? 'none' : 'disc' }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono tracking-wider focus:outline-none focus:border-[#15803d]"
+                      placeholder="Account Number (Digits only)"
                     />
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Confirm A/c Number *</label>
                     <input
                       type="text"
+                      inputMode="numeric"
+                      name="bank_account_confirm_sequence"
+                      id="bank_account_confirm_sequence"
+                      autoComplete="off"
+                      spellCheck="false"
                       required
                       value={newBankForm.confirmAccountNumber}
-                      onChange={(e) => setNewBankForm({ ...newBankForm, confirmAccountNumber: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono focus:outline-none focus:border-[#15803d]"
+                      onChange={(e) => setNewBankForm({ ...newBankForm, confirmAccountNumber: e.target.value.replace(/\D/g, '') })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono tracking-wider focus:outline-none focus:border-[#15803d]"
                       placeholder="Re-type Account Number"
                     />
                   </div>
@@ -1429,9 +1593,14 @@ export const WalletSection = ({ onBack }) => {
                     <label className="block font-bold text-slate-700 mb-1">IFSC Code *</label>
                     <input
                       type="text"
+                      name="bank_routing_ifsc"
+                      id="bank_routing_ifsc"
+                      autoComplete="off"
+                      spellCheck="false"
                       required
+                      maxLength={11}
                       value={newBankForm.ifsc}
-                      onChange={(e) => setNewBankForm({ ...newBankForm, ifsc: e.target.value.toUpperCase() })}
+                      onChange={(e) => setNewBankForm({ ...newBankForm, ifsc: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11) })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono uppercase focus:outline-none focus:border-[#15803d]"
                       placeholder="e.g. SBIN0001234"
                     />
@@ -1439,6 +1608,7 @@ export const WalletSection = ({ onBack }) => {
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Account Type *</label>
                     <select
+                      name="bank_account_classification"
                       value={newBankForm.accountType}
                       onChange={(e) => setNewBankForm({ ...newBankForm, accountType: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-[#15803d]"

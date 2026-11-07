@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useMLM } from '../context/MLMContext';
@@ -65,7 +65,27 @@ export const AccountPage = ({ initialTab }) => {
   const { cartCount } = useCart();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = initialTab || searchParams.get('tab') || 'overview';
+  const [activeTabState, setActiveTabState] = useState(initialTab || searchParams.get('tab') || 'overview');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam) {
+      setActiveTabState(tabParam);
+    } else if (initialTab) {
+      setActiveTabState(initialTab);
+    }
+  }, [searchParams, initialTab]);
+
+  const setTab = (tabName) => {
+    setActiveTabState(tabName);
+    if (window.location.pathname === '/wallet' && tabName === 'overview') {
+      navigate('/account?tab=overview');
+    } else {
+      setSearchParams({ tab: tabName });
+    }
+  };
+
+  const currentTab = activeTabState;
 
   const [viewMode, setViewMode] = useState('tree'); // 'tree' or 'table'
   const [copiedCode, setCopiedCode] = useState(false);
@@ -328,7 +348,7 @@ export const AccountPage = ({ initialTab }) => {
                   <div className="p-2 space-y-1 text-xs">
                     <button
                       type="button"
-                      onClick={() => { setUserMenuOpen(false); setSearchParams({ tab: 'overview' }); }}
+                      onClick={() => { setUserMenuOpen(false); setTab('overview'); }}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl font-medium transition-colors text-left cursor-pointer ${
                         currentTab === 'overview'
                           ? 'bg-[#edf7ee] text-[#15803d] font-bold'
@@ -341,7 +361,7 @@ export const AccountPage = ({ initialTab }) => {
 
                     <button
                       type="button"
-                      onClick={() => { setUserMenuOpen(false); setSearchParams({ tab: 'wallet' }); }}
+                      onClick={() => { setUserMenuOpen(false); setTab('wallet'); }}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl font-medium transition-colors text-left cursor-pointer ${
                         currentTab === 'wallet'
                           ? 'bg-[#edf7ee] text-[#15803d] font-bold'
@@ -424,7 +444,7 @@ export const AccountPage = ({ initialTab }) => {
         )}
 
         {currentTab === 'wallet' ? (
-          <WalletSection onBack={() => setSearchParams({ tab: 'overview' })} />
+          <WalletSection onBack={() => setTab('overview')} />
         ) : (
           <>
             {/* Row 1: Namaste Greeting (Left) & Referral Code Box (Right) */}
@@ -525,7 +545,7 @@ export const AccountPage = ({ initialTab }) => {
           
           {/* 1. Wallet Balance */}
           <div 
-            onClick={() => setSearchParams({ tab: 'wallet' })}
+            onClick={() => setTab('wallet')}
             className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group"
           >
             <div className="flex items-center gap-3.5">
@@ -544,7 +564,7 @@ export const AccountPage = ({ initialTab }) => {
 
           {/* 2. Total Commissions */}
           <div 
-            onClick={() => setShowAllCommissionsModal(true)}
+            onClick={() => setTab('wallet')}
             className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group"
           >
             <div className="flex items-center gap-3.5">
