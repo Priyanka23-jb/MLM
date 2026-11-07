@@ -1,0 +1,44 @@
+# Core dependencies & builds
+node_modules
+dist
+.env
+.env.local
+
+# Additional environment files
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vite / Build outputs
+dist-ssr
+*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & IDE files
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Cache & Diagnostics
+.eslintcache
+.stylelintcache
+.turbo
+coverage
+.nyc_output
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
