@@ -7,7 +7,7 @@ import {
   INITIAL_WITHDRAWALS 
 } from '../data/initialData';
 import { INITIAL_PRODUCTS, MEMBERSHIP_PACKAGE_DETAILS } from '../data/products';
-import { generateTxId, generateWithdrawalId } from '../utils/helpers';
+import { generateTxId, generateWithdrawalId, formatCurrency } from '../utils/helpers';
 
 const MLMContext = createContext();
 
@@ -21,63 +21,98 @@ export const MLMProvider = ({ children }) => {
     return DEFAULT_COMMISSION_RULES;
   });
 
-  // Users / Network
+  // Users / Network - Robust localStorage hydration
   const [users, setUsers] = useState(() => {
     try {
       const saved = localStorage.getItem('directgrow_users_v5');
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some(u => u.id === 'usr-108')) {
+        let parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          let ordersSaved = [];
+          try {
+            const rawOrders = localStorage.getItem('directgrow_orders_v5');
+            if (rawOrders) ordersSaved = JSON.parse(rawOrders);
+          } catch (e) {}
+
+          parsed = parsed.map(u => {
+            if (u.id === 'usr-109') return u;
+            const hasOrder = Array.isArray(ordersSaved) && ordersSaved.some(o => o.userId === u.id);
+            if (u.isQualified || u.hasFirstPurchase || hasOrder || u.membershipStatus === 'ACTIVE') {
+              return { ...u, membershipStatus: 'ACTIVE', isActivated: true, isQualified: true, hasFirstPurchase: true, referralCodeLocked: false };
+            }
+            return u;
+          });
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Error reading users from localStorage:", e);
+    }
     return INITIAL_USERS;
   });
 
-  // Products
+  // Products - Sync with INITIAL_PRODUCTS while preserving custom items
   const [products, setProducts] = useState(() => {
     try {
       const saved = localStorage.getItem('directgrow_products_v5');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const customCreated = parsed.filter(p => !INITIAL_PRODUCTS.some(ip => ip.id === p.id));
+          return [...INITIAL_PRODUCTS, ...customCreated];
+        }
+      }
+    } catch (e) {
+      console.error("Error reading products from localStorage:", e);
+    }
     return INITIAL_PRODUCTS;
   });
 
-  // Orders
+  // Orders - Robust localStorage hydration
   const [orders, setOrders] = useState(() => {
     try {
       const saved = localStorage.getItem('directgrow_orders_v5');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some(o => o.id === 'ORD-108')) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Error reading orders from localStorage:", e);
+    }
     return INITIAL_ORDERS;
   });
 
-  // Transactions Ledger
+  // Transactions Ledger - Robust localStorage hydration
   const [transactions, setTransactions] = useState(() => {
     try {
       const saved = localStorage.getItem('directgrow_transactions_v5');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some(t => t.id === 'tx-s7')) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Error reading transactions from localStorage:", e);
+    }
     return INITIAL_TRANSACTIONS;
   });
 
-  // Withdrawals
+  // Withdrawals - Robust localStorage hydration
   const [withdrawals, setWithdrawals] = useState(() => {
     try {
       const saved = localStorage.getItem('directgrow_withdrawals');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error("Error reading withdrawals from localStorage:", e);
+    }
     return INITIAL_WITHDRAWALS;
   });
 
@@ -109,6 +144,62 @@ export const MLMProvider = ({ children }) => {
     localStorage.setItem('directgrow_withdrawals', JSON.stringify(withdrawals));
   }, [withdrawals]);
 
+  // Synchronize network state across tabs and on tab focus / visibility return
+  useEffect(() => {
+    const syncFromStorage = () => {
+      try {
+        const u = localStorage.getItem('directgrow_users_v5');
+        if (u) {
+          const parsedU = JSON.parse(u);
+          if (Array.isArray(parsedU) && parsedU.length > 0) {
+            setUsers(parsedU);
+          }
+        }
+        const o = localStorage.getItem('directgrow_orders_v5');
+        if (o) {
+          const parsedO = JSON.parse(o);
+          if (Array.isArray(parsedO)) setOrders(parsedO);
+        }
+        const t = localStorage.getItem('directgrow_transactions_v5');
+        if (t) {
+          const parsedT = JSON.parse(t);
+          if (Array.isArray(parsedT)) setTransactions(parsedT);
+        }
+        const w = localStorage.getItem('directgrow_withdrawals');
+        if (w) {
+          const parsedW = JSON.parse(w);
+          if (Array.isArray(parsedW)) setWithdrawals(parsedW);
+        }
+      } catch (e) {}
+    };
+
+    const handleStorage = (e) => {
+      if (
+        e.key === 'directgrow_users_v5' || 
+        e.key === 'directgrow_orders_v5' || 
+        e.key === 'directgrow_transactions_v5' ||
+        e.key === 'directgrow_withdrawals'
+      ) {
+        syncFromStorage();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', syncFromStorage);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncFromStorage();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', syncFromStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
   // Compute depth from Root Sponsor Rohan Verma (usr-008 / DG10008)
   const getUserChainDepth = (codeOrId) => {
     if (!codeOrId) return 0;
@@ -130,31 +221,36 @@ export const MLMProvider = ({ children }) => {
   };
 
   // Check if a referral code is already used by an existing downline member (1-time referral rule)
-  const isReferralCodeUsed = (code) => {
-    if (!code) return false;
-    const clean = code.trim().toUpperCase();
-    return users.some(u => u.sponsorCode && u.sponsorCode.trim().toUpperCase() === clean);
+  const isReferralCodeUsed = (codeOrName) => {
+    if (!codeOrName) return false;
+    const clean = String(codeOrName).trim().toLowerCase();
+    const sponsor = users.find(u => 
+      u.referralCode?.toLowerCase() === clean ||
+      u.name?.toLowerCase() === clean ||
+      u.name?.toLowerCase().includes(clean)
+    );
+    const targetCode = sponsor ? sponsor.referralCode : String(codeOrName).trim().toUpperCase();
+    return users.some(u => u.sponsorCode && u.sponsorCode.trim().toUpperCase() === targetCode.toUpperCase());
   };
 
-  // Check if a member is eligible to refer
+  // Check if a member is eligible to refer (by code, ID, or name)
   // Strict Rules:
-  // 0. Mandatory ₹2,000 membership activation package must be completed and active
   // 1. Level 8 is the terminal level in the 8-level system — Level 8 (Priya Sharma) CANNOT refer anyone!
   // 2. Strict 1-person limit — disabled once they have successfully referred 1 member.
-  const canUserRefer = (codeOrId) => {
-    if (!codeOrId) return false;
-    const clean = String(codeOrId).trim().toUpperCase();
-    const user = users.find(u => u.id === codeOrId || u.referralCode?.toUpperCase() === clean);
+  const canUserRefer = (codeOrIdOrName) => {
+    if (!codeOrIdOrName) return false;
+    const clean = String(codeOrIdOrName).trim().toLowerCase();
+    const user = users.find(u => 
+      u.id === codeOrIdOrName || 
+      u.referralCode?.toLowerCase() === clean ||
+      u.name?.toLowerCase() === clean ||
+      u.name?.toLowerCase().includes(clean)
+    );
     if (!user) return false;
-
-    // Rule 0: Mandatory ₹2,000 membership activation check
-    if (user.membershipStatus === 'PENDING' || (!user.isActivated && !user.isQualified)) {
-      return false;
-    }
 
     // Rule 1: Level 8 is the terminal level of the 8-level chain -> CANNOT refer anyone
     const depth = getUserChainDepth(user.id);
-    if (depth >= 8) {
+    if (depth >= 8 || user.referralCode === 'DG20008') {
       return false;
     }
 
@@ -163,19 +259,20 @@ export const MLMProvider = ({ children }) => {
     return !hasReferred;
   };
 
-  // Get referral restriction reason
-  const getReferralRestrictionReason = (codeOrId) => {
-    if (!codeOrId) return null;
-    const clean = String(codeOrId).trim().toUpperCase();
-    const user = users.find(u => u.id === codeOrId || u.referralCode?.toUpperCase() === clean);
+  // Get referral restriction reason (by code, ID, or name)
+  const getReferralRestrictionReason = (codeOrIdOrName) => {
+    if (!codeOrIdOrName) return null;
+    const clean = String(codeOrIdOrName).trim().toLowerCase();
+    const user = users.find(u => 
+      u.id === codeOrIdOrName || 
+      u.referralCode?.toLowerCase() === clean ||
+      u.name?.toLowerCase() === clean ||
+      u.name?.toLowerCase().includes(clean)
+    );
     if (!user) return null;
 
-    if (user.membershipStatus === 'PENDING' || (!user.isActivated && !user.isQualified)) {
-      return "PENDING_ACTIVATION";
-    }
-
     const depth = getUserChainDepth(user.id);
-    if (depth >= 8) {
+    if (depth >= 8 || user.referralCode === 'DG20008') {
       return "LEVEL_8_TERMINAL";
     }
 
@@ -187,11 +284,16 @@ export const MLMProvider = ({ children }) => {
     return null;
   };
 
-  // Get the single direct referral sponsored by this member (if any)
-  const getDirectReferral = (codeOrId) => {
-    if (!codeOrId) return null;
-    const clean = String(codeOrId).trim().toUpperCase();
-    const user = users.find(u => u.id === codeOrId || u.referralCode?.toUpperCase() === clean);
+  // Get the single direct referral sponsored by this member (if any, by code, ID, or name)
+  const getDirectReferral = (codeOrIdOrName) => {
+    if (!codeOrIdOrName) return null;
+    const clean = String(codeOrIdOrName).trim().toLowerCase();
+    const user = users.find(u => 
+      u.id === codeOrIdOrName || 
+      u.referralCode?.toLowerCase() === clean ||
+      u.name?.toLowerCase() === clean ||
+      u.name?.toLowerCase().includes(clean)
+    );
     if (!user) return null;
     return users.find(u => u.sponsorCode && u.sponsorCode.trim().toUpperCase() === user.referralCode.toUpperCase()) || null;
   };
@@ -249,10 +351,24 @@ export const MLMProvider = ({ children }) => {
     return sequence;
   };
 
-  // Find user by code
-  const getUserByCode = (code) => {
-    if (!code) return null;
-    return users.find(u => u.referralCode?.toUpperCase() === code.trim().toUpperCase()) || null;
+  // Find user by code OR name OR email OR phone
+  const getUserByCode = (codeOrName) => {
+    if (!codeOrName) return null;
+    const clean = String(codeOrName).trim().toLowerCase();
+    // 1. Exact referral code or email match
+    let found = users.find(u => 
+      u.referralCode?.toLowerCase() === clean ||
+      u.email?.toLowerCase() === clean
+    );
+    // 2. Exact name match
+    if (!found) {
+      found = users.find(u => u.name?.toLowerCase() === clean);
+    }
+    // 3. Partial name match
+    if (!found) {
+      found = users.find(u => u.name?.toLowerCase().includes(clean) || clean.includes(u.name?.toLowerCase()));
+    }
+    return found || null;
   };
 
   // Find user by ID
@@ -366,17 +482,19 @@ export const MLMProvider = ({ children }) => {
 
   // Register New Member into the Strict 8-Level Single-Line Chain
   const registerMember = (memberData) => {
-    const rawSponsor = memberData.sponsorCode ? memberData.sponsorCode.trim().toUpperCase() : null;
+    let resolvedSponsor = null;
+    const rawSponsor = memberData.sponsorCode ? String(memberData.sponsorCode).trim() : null;
 
     // Only validate sponsor code if a sponsor was provided
-    if (rawSponsor && rawSponsor !== 'DIRECT' && rawSponsor !== 'NONE') {
+    if (rawSponsor && rawSponsor.toUpperCase() !== 'DIRECT' && rawSponsor.toUpperCase() !== 'NONE') {
       const sponsor = getUserByCode(rawSponsor);
       if (!sponsor) {
         return {
           success: false,
-          message: `Sponsor referral code "${rawSponsor}" does not exist in the network.`
+          message: `Sponsor referral "${rawSponsor}" does not exist in the network.`
         };
       }
+      resolvedSponsor = sponsor;
 
       // Strict Level 8 check: Level 8 is the terminal tier and cannot refer anyone
       const sponsorDepth = getUserChainDepth(sponsor.id);
@@ -388,7 +506,7 @@ export const MLMProvider = ({ children }) => {
       }
 
       // Strict single-line check: verify if sponsor already referred someone
-      const existingChild = users.find(u => u.sponsorCode && u.sponsorCode.trim().toUpperCase() === rawSponsor);
+      const existingChild = users.find(u => u.sponsorCode && u.sponsorCode.trim().toUpperCase() === sponsor.referralCode.toUpperCase());
       if (existingChild) {
         return {
           success: false,
@@ -407,7 +525,7 @@ export const MLMProvider = ({ children }) => {
       email: memberData.email,
       phone: memberData.phone,
       referralCode: newCode,
-      sponsorCode: (rawSponsor && rawSponsor !== 'DIRECT' && rawSponsor !== 'NONE') ? rawSponsor : null,
+      sponsorCode: resolvedSponsor ? resolvedSponsor.referralCode : null,
       rank: "Distributor (Pending)",
       membershipStatus: "PENDING", // PENDING until mandatory ₹2,000 package payment is verified
       isActivated: false,
@@ -443,7 +561,15 @@ export const MLMProvider = ({ children }) => {
       }
     };
 
-    setUsers(prev => [...prev, newUser]);
+    const nextUsers = [...users, newUser];
+    setUsers(nextUsers);
+    try {
+      localStorage.setItem('directgrow_users_v5', JSON.stringify(nextUsers));
+      localStorage.setItem('directgrow_current_user_v5', JSON.stringify(newUser));
+    } catch (e) {
+      console.error("Error writing new user to localStorage:", e);
+    }
+
     return {
       success: true,
       user: newUser
@@ -458,7 +584,20 @@ export const MLMProvider = ({ children }) => {
     }
 
     if (user.membershipStatus === 'ACTIVE' && user.isActivated) {
-      return { success: true, message: "Membership is already active.", user };
+      const existingOrder = orders.find(o => o.userId === user.id && o.isMembershipActivation) || {
+        id: `ORD-ACT-${user.id || '2000'}`,
+        total: 2000,
+        status: "DELIVERED",
+        items: (MEMBERSHIP_PACKAGE_DETAILS.includedProducts || []).map(p => ({
+          productId: p.id,
+          name: p.name,
+          price: p.mrp,
+          quantity: 1,
+          image: p.image,
+          category: p.category
+        }))
+      };
+      return { success: true, message: "Membership is already active.", user, order: existingOrder };
     }
 
     // 1. Create ₹2,000 Activation Order with all included products
@@ -488,10 +627,10 @@ export const MLMProvider = ({ children }) => {
       paymentStatus: "PAID",
       isMembershipActivation: true,
       shippingAddress: {
-        line: user.address?.line || "Default Delivery Address",
-        city: user.address?.city || "New Delhi",
+        line: paymentDetails.address?.line || user.address?.line || "Default Delivery Address",
+        city: paymentDetails.address?.city || user.address?.city || "New Delhi",
         state: user.address?.state || "Delhi",
-        pincode: user.address?.pincode || "110001"
+        pincode: paymentDetails.address?.pincode || user.address?.pincode || "110001"
       }
     };
 
@@ -511,27 +650,35 @@ export const MLMProvider = ({ children }) => {
     setUsers(nextUsers);
     try {
       localStorage.setItem('directgrow_users_v5', JSON.stringify(nextUsers));
-    } catch (e) {}
-
-    const nextOrders = [activationOrder, ...orders];
-    setOrders(nextOrders);
-    try {
-      localStorage.setItem('directgrow_orders_v5', JSON.stringify(nextOrders));
+      localStorage.setItem('directgrow_current_user_v5', JSON.stringify(updatedUser));
     } catch (e) {}
 
     // 3. Process ₹2,000 Qualifying Order Payment to distribute ₹290 8-level commissions to uplines
-    processOrderPayment(activationOrder, updatedUser);
+    let finalOrder = activationOrder;
+    try {
+      finalOrder = processOrderPayment(activationOrder, updatedUser, nextUsers) || activationOrder;
+    } catch (paymentErr) {
+      console.error("Error in processOrderPayment during activateMembership:", paymentErr);
+      setOrders(prev => {
+        const filtered = prev.filter(o => o.id !== activationOrder.id);
+        const updated = [activationOrder, ...filtered];
+        try {
+          localStorage.setItem('directgrow_orders_v5', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+    }
 
     return {
       success: true,
       user: updatedUser,
-      order: activationOrder
+      order: finalOrder
     };
   };
 
   // Process Order Payment & Distribute 8-Level Single-Line Referral Commissions
   // Triggered on EVERY purchase (first purchase AND all subsequent purchases)
-  const processOrderPayment = (newOrder, customerUser) => {
+  const processOrderPayment = (newOrder, customerUser, currentUsersList = null) => {
     // 1. Payment & Order Verification
     if (!newOrder || !newOrder.total || newOrder.total <= 0) {
       return { success: false, message: "Invalid order amount or empty items" };
@@ -546,22 +693,26 @@ export const MLMProvider = ({ children }) => {
       return orders.find(o => o.id === newOrder.id) || newOrder;
     }
 
-    const currentCustomer = users.find(u => u.id === customerUser?.id) || customerUser;
-    const isQualifyingAmount = newOrder.total >= (commissionRules.fixedOrderAmount || commissionRules.qualifyingOrderAmount || 2000);
+    const effectiveUsers = currentUsersList || users;
+    const currentCustomer = effectiveUsers.find(u => u.id === customerUser?.id) || customerUser;
+    const isQualifyingAmount = newOrder.total >= (commissionRules.fixedOrderAmount || commissionRules.qualifyingOrderAmount || 2000) || newOrder.isMembershipActivation;
 
     let distributed = false;
     let distributionReport = [];
-    let updatedUsers = [...users];
+    let updatedUsers = [...effectiveUsers];
     const newTransactions = [];
 
-    // Mark current customer as having made purchase and qualified
+    // Mark current customer as having made purchase and qualified & ACTIVE
     updatedUsers = updatedUsers.map(u => {
       if (u.id === currentCustomer.id) {
         return {
           ...u,
           hasFirstPurchase: true,
           isQualified: isQualifyingAmount ? true : u.isQualified,
-          rank: isQualifyingAmount ? "Active Qualifier" : u.rank
+          isActivated: isQualifyingAmount ? true : u.isActivated,
+          membershipStatus: isQualifyingAmount ? "ACTIVE" : (u.membershipStatus === 'ACTIVE' ? 'ACTIVE' : u.membershipStatus),
+          referralCodeLocked: isQualifyingAmount ? false : u.referralCodeLocked,
+          rank: isQualifyingAmount ? "Active Distributor" : u.rank
         };
       }
       return u;
@@ -639,10 +790,36 @@ export const MLMProvider = ({ children }) => {
       distributionReport: distributionReport
     };
 
-    setOrders(prev => [finalizedOrder, ...prev]);
+    setOrders(prev => {
+      const filtered = prev.filter(o => o.id !== finalizedOrder.id);
+      const updated = [finalizedOrder, ...filtered];
+      try {
+        localStorage.setItem('directgrow_orders_v5', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
     setUsers(updatedUsers);
+    try {
+      localStorage.setItem('directgrow_users_v5', JSON.stringify(updatedUsers));
+      const savedCur = localStorage.getItem('directgrow_current_user_v5');
+      if (savedCur) {
+        const curParsed = JSON.parse(savedCur);
+        const match = updatedUsers.find(u => u.id === curParsed.id || u.referralCode === curParsed.referralCode);
+        if (match) {
+          localStorage.setItem('directgrow_current_user_v5', JSON.stringify({ ...curParsed, ...match }));
+        }
+      }
+    } catch (e) {}
+
     if (newTransactions.length > 0) {
-      setTransactions(prev => [...newTransactions, ...prev]);
+      setTransactions(prev => {
+        const updated = [...newTransactions, ...prev];
+        try {
+          localStorage.setItem('directgrow_transactions_v5', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
     }
 
     if (distributed) {
@@ -860,6 +1037,23 @@ export const MLMProvider = ({ children }) => {
     setProducts(prev => prev.filter(p => p.id !== id));
   };
 
+  // Reset Network Data to Initial Default Seed
+  const resetNetworkData = () => {
+    try {
+      localStorage.removeItem('directgrow_users_v5');
+      localStorage.removeItem('directgrow_current_user_v5');
+      localStorage.removeItem('directgrow_orders_v5');
+      localStorage.removeItem('directgrow_transactions_v5');
+      localStorage.removeItem('directgrow_withdrawals');
+      localStorage.setItem('directgrow_users_v5', JSON.stringify(INITIAL_USERS));
+    } catch (e) {}
+    setUsers(INITIAL_USERS);
+    setOrders(INITIAL_ORDERS);
+    setTransactions(INITIAL_TRANSACTIONS);
+    setWithdrawals(INITIAL_WITHDRAWALS);
+    window.location.reload();
+  };
+
   return (
     <MLMContext.Provider
       value={{
@@ -867,6 +1061,7 @@ export const MLMProvider = ({ children }) => {
         updateCommissionRules,
         resetCommissionRules,
         users,
+        resetNetworkData,
         products,
         orders,
         transactions,

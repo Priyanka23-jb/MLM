@@ -5,7 +5,6 @@ import { MLMProvider } from './context/MLMContext';
 import { CartProvider } from './context/CartContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
-import { PersonaSwitcher } from './components/common/PersonaSwitcher';
 import { CommissionCelebrationModal } from './components/common/CommissionCelebrationModal';
 import { ScrollToTop } from './components/common/ScrollToTop';
 
@@ -29,8 +28,8 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen bg-[#f8fafc]">
       <ScrollToTop />
       
-      {/* Show Public Navbar on all public pages */}
-      {!isAdminRoute && <Navbar />}
+      {/* Show Public Navbar on all public pages except dedicated /account, /wallet and full-screen /login */}
+      {!isAdminRoute && location.pathname !== '/account' && location.pathname !== '/wallet' && location.pathname !== '/login' && <Navbar />}
 
       {/* Main Routed Page Content */}
       <main className="flex-1">
@@ -52,19 +51,19 @@ const AppContent = () => {
           <Route path="/privacy" element={<Navigate to="/" replace />} />
           <Route path="/terms" element={<Navigate to="/" replace />} />
 
-          {/* Integrated Public Customer Account */}
+          {/* Integrated Public Customer Account & Wallet Module */}
           <Route path="/account" element={<AccountPage />} />
+          <Route path="/wallet" element={<AccountPage initialTab="wallet" />} />
 
           {/* Private Administrator Dashboard */}
           <Route path="/admin/*" element={<AdminPage />} />
         </Routes>
       </main>
 
-      {/* Show Public Footer on all public pages */}
-      {!isAdminRoute && <Footer />}
+      {/* Show Public Footer on all public pages except dedicated dashboards & full-screen /login */}
+      {!isAdminRoute && location.pathname !== '/account' && location.pathname !== '/wallet' && location.pathname !== '/login' && <Footer />}
 
       {/* Global Interactive Testing & Commission Modals */}
-      <PersonaSwitcher />
       <CommissionCelebrationModal />
     </div>
   );

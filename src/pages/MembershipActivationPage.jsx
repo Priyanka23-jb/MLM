@@ -77,30 +77,40 @@ export const MembershipActivationPage = () => {
 
   const handleActivate = (e) => {
     e?.preventDefault();
+    if (isProcessing) return;
     setIsProcessing(true);
 
     setTimeout(() => {
-      const res = activateMembership(currentUser.id, {
-        method: paymentMethod,
-        address: { line: address, city, pincode }
-      });
+      try {
+        const res = activateMembership(currentUser.id, {
+          method: paymentMethod,
+          address: { line: address, city, pincode }
+        });
 
-      setIsProcessing(false);
+        if (res && res.success) {
+          setActivationSuccess(true);
+          setActivationOrder(res.order);
+          if (setCurrentUser) {
+            setCurrentUser(res.user);
+            try {
+              localStorage.setItem('directgrow_current_user_v5', JSON.stringify(res.user));
+            } catch (e) {}
+          }
 
-      if (res && res.success) {
-        setActivationSuccess(true);
-        setActivationOrder(res.order);
-        if (setCurrentUser) {
-          setCurrentUser(res.user);
+          try {
+            confetti({
+              particleCount: 150,
+              spread: 90,
+              origin: { y: 0.6 }
+            });
+          } catch (e) {}
+        } else {
+          console.error("Activation response:", res?.message);
         }
-
-        try {
-          confetti({
-            particleCount: 150,
-            spread: 90,
-            origin: { y: 0.6 }
-          });
-        } catch (e) {}
+      } catch (err) {
+        console.error("Activation error:", err);
+      } finally {
+        setIsProcessing(false);
       }
     }, 700);
   };

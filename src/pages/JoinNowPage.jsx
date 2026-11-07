@@ -84,8 +84,8 @@ export const JoinNowPage = () => {
   const verifiedSponsor = sponsorCode && !noSponsor ? getUserByCode(sponsorCode) : null;
   const sponsorDepth = (verifiedSponsor && getUserChainDepth) ? getUserChainDepth(verifiedSponsor.id) : 0;
   const isSponsorLevel8 = verifiedSponsor ? (sponsorDepth >= 8 || verifiedSponsor.referralCode === 'DG20008') : false;
-  const isSponsorEligible = isSponsorLevel8 ? false : (verifiedSponsor ? (canUserRefer ? canUserRefer(sponsorCode) : !isReferralCodeUsed(sponsorCode)) : false);
-  const alreadyReferredMember = verifiedSponsor && getDirectReferral ? getDirectReferral(sponsorCode) : null;
+  const alreadyReferredMember = verifiedSponsor && getDirectReferral ? getDirectReferral(verifiedSponsor.referralCode) : null;
+  const isSponsorEligible = isSponsorLevel8 ? false : !alreadyReferredMember;
   const activeChainTail = getActiveChainTail ? getActiveChainTail() : users[users.length - 1];
 
   useEffect(() => {
@@ -114,15 +114,15 @@ export const JoinNowPage = () => {
     if (!noSponsor && sponsorCode.trim()) {
       const found = getUserByCode(sponsorCode);
       if (!found) {
-        setError(`Sponsor referral code "${sponsorCode}" is invalid. Please check or select "I don't have a sponsor".`);
+        setError(`Sponsor "${sponsorCode}" was not found. Please enter a valid referral code or member name, or select "I don't have a sponsor code".`);
         return;
       }
       if (isSponsorLevel8) {
-        setError(`Sponsor ${found.name} (${sponsorCode}) is at Level 8 (the terminal tier of the 8-level system). In DirectGrow's strict 8-level system, Level 8 members cannot refer anyone.`);
+        setError(`Sponsor ${found.name} (${found.referralCode}) is at Level 8 (the terminal tier of the 8-level system). In DirectGrow's strict 8-level system, Level 8 members cannot refer anyone.`);
         return;
       }
-      if (!isSponsorEligible) {
-        setError(`Sponsor ${found.name} (${sponsorCode}) has already referred their allowed 1 direct recruit (${alreadyReferredMember ? alreadyReferredMember.name : 'a downline member'}). In this strict single-line chain, each member can refer only one person. Their referral option is now disabled.`);
+      if (alreadyReferredMember) {
+        setError(`Sponsor ${found.name} (${found.referralCode}) has already referred their allowed 1 direct recruit (${alreadyReferredMember.name}). In this strict single-line chain, each member can refer only one person. Their referral option is now disabled.`);
         return;
       }
     }
@@ -147,7 +147,7 @@ export const JoinNowPage = () => {
     // Register user: if no sponsor, they join as an independent new member
     const targetSponsor = (noSponsor || !sponsorCode.trim())
       ? null
-      : (sponsorCode.trim().toUpperCase());
+      : (verifiedSponsor ? verifiedSponsor.referralCode : sponsorCode.trim().toUpperCase());
 
     const result = registerMember({
       name: fullName.trim(),
@@ -165,8 +165,11 @@ export const JoinNowPage = () => {
 
     const created = result.user;
 
-    // Automatically set as current session user in pending status
+    // Automatically set as current session user in pending status and persist immediately
     setCurrentUser(created);
+    try {
+      localStorage.setItem('directgrow_current_user_v5', JSON.stringify(created));
+    } catch (err) {}
     setCreatedUser(created);
     setDeliveryAddress(`${city.trim() || 'New Delhi'}, Pincode: ${pincode.trim() || '110001'}`);
     setStep(3);
@@ -186,34 +189,39 @@ export const JoinNowPage = () => {
 
   const handlePackagePayment = (e) => {
     e?.preventDefault();
-    if (!createdUser) return;
+    if (!createdUser || isPaying) return;
     setIsPaying(true);
 
     setTimeout(() => {
-      const res = activateMembership(createdUser.id, {
-        method: paymentMethod,
-        address: { line: deliveryAddress, city: city || 'New Delhi', pincode: pincode || '110001' }
-      });
+      try {
+        const res = activateMembership(createdUser.id, {
+          method: paymentMethod,
+          address: { line: deliveryAddress, city: city || 'New Delhi', pincode: pincode || '110001' }
+        });
 
-      setIsPaying(false);
+        if (res && res.success) {
+          setPaymentSuccess(true);
+          setActivationOrder(res.order);
+          if (setCurrentUser) {
+            setCurrentUser(res.user);
+          }
+          setCreatedUser(res.user);
 
-      if (res && res.success) {
-        setPaymentSuccess(true);
-        setActivationOrder(res.order);
-        if (setCurrentUser) {
-          setCurrentUser(res.user);
+          try {
+            confetti({
+              particleCount: 160,
+              spread: 90,
+              origin: { y: 0.6 }
+            });
+          } catch (e) {}
+        } else {
+          setError(res?.message || 'Payment processing failed. Please try again.');
         }
-        setCreatedUser(res.user);
-
-        try {
-          confetti({
-            particleCount: 160,
-            spread: 90,
-            origin: { y: 0.6 }
-          });
-        } catch (e) {}
-      } else {
-        setError(res?.message || 'Payment processing failed. Please try again.');
+      } catch (err) {
+        console.error("Payment error in JoinNowPage:", err);
+        setError('An unexpected error occurred during payment processing. Please try again.');
+      } finally {
+        setIsPaying(false);
       }
     }, 700);
   };
@@ -351,16 +359,44 @@ export const JoinNowPage = () => {
               <div>
                 <input
                   type="text"
-                  placeholder="Enter 7-character code (e.g. DG10008)"
+                  placeholder="Enter referral code or sponsor name (e.g. DG10008 or Rohan)"
                   value={noSponsor ? "" : sponsorCode}
                   disabled={noSponsor}
-                  onChange={(e) => setSponsorCode(e.target.value.toUpperCase())}
-                  className={`w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-mono font-bold text-slate-900 placeholder-slate-400 focus:outline-none transition-all ${
+                  onChange={(e) => setSponsorCode(e.target.value)}
+                  className={`w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none transition-all ${
                     noSponsor 
                       ? "opacity-60 bg-slate-50 cursor-not-allowed font-sans font-normal" 
                       : "focus:ring-2 focus:ring-[#0c6b37]/20 focus:border-[#0c6b37]"
                   }`}
                 />
+
+                {/* Real-time verification badge */}
+                {!noSponsor && sponsorCode.trim() && (
+                  <div className="mt-2 text-xs">
+                    {verifiedSponsor ? (
+                      isSponsorEligible ? (
+                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Verified Sponsor: <strong>{verifiedSponsor.name}</strong> ({verifiedSponsor.referralCode})</span>
+                        </div>
+                      ) : isSponsorLevel8 ? (
+                        <div className="flex items-center gap-1.5 text-rose-800 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200 font-semibold">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>{verifiedSponsor.name} is at Level 8 (Terminal Level). Cannot refer new members.</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-amber-800 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 font-semibold">
+                          <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                          <span>{verifiedSponsor.name} has already referred {alreadyReferredMember?.name} (1/1 Quota Full).</span>
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-slate-400 font-medium">
+                        <span>Searching sponsor by referral code or name...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -374,13 +410,16 @@ export const JoinNowPage = () => {
 
             {/* Full Name Field */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label htmlFor="join-fullName" className="block text-xs font-bold text-slate-700 mb-1">
                 Full Name <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
+                  id="join-fullName"
+                  name="fullName"
+                  autoComplete="name"
                   placeholder="Enter your full name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -393,13 +432,17 @@ export const JoinNowPage = () => {
             {/* Mobile Number & Email Address (2 Columns) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label htmlFor="join-phone" className="block text-xs font-bold text-slate-700 mb-1">
                   Mobile Number <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="tel"
+                    id="join-phone"
+                    name="phone"
+                    autoComplete="tel"
+                    inputMode="tel"
                     placeholder="+91 98765 43210"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -410,13 +453,16 @@ export const JoinNowPage = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label htmlFor="join-email" className="block text-xs font-bold text-slate-700 mb-1">
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="email"
+                    id="join-email"
+                    name="email"
+                    autoComplete="email"
                     placeholder="name@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -430,13 +476,16 @@ export const JoinNowPage = () => {
             {/* City / Region & Pincode (2 Columns) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label htmlFor="join-city" className="block text-xs font-bold text-slate-700 mb-1">
                   City / Region
                 </label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
+                    id="join-city"
+                    name="city"
+                    autoComplete="address-level2"
                     placeholder="e.g. Pune, Jaipur, Delhi"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
@@ -446,16 +495,22 @@ export const JoinNowPage = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label htmlFor="join-pincode" className="block text-xs font-bold text-slate-700 mb-1">
                   Pincode <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
+                    id="join-pincode"
+                    name="pincode"
+                    autoComplete="postal-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    pattern="[0-9]{6}"
                     placeholder="Enter 6-digit pincode"
                     value={pincode}
-                    onChange={(e) => setPincode(e.target.value)}
+                    onChange={(e) => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0c6b37]/20 focus:border-[#0c6b37] transition-all"
                     required
                   />
@@ -465,13 +520,16 @@ export const JoinNowPage = () => {
 
             {/* Create Account Password Field */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label htmlFor="join-password" className="block text-xs font-bold text-slate-700 mb-1">
                 Create Account Password <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type={showPassword ? "text" : "password"}
+                  id="join-password"
+                  name="password"
+                  autoComplete="new-password"
                   placeholder="Create a strong password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

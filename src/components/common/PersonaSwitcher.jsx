@@ -7,7 +7,7 @@ import { Users, Shield, UserCheck, RefreshCw, X, ChevronDown, CheckCircle2 } fro
 export const PersonaSwitcher = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { currentUser, loginAsUser, loginAsAdmin, logout, isAdmin } = useAuth();
-  const { users } = useMLM();
+  const { users, resetNetworkData } = useMLM();
 
   return (
     <div className="fixed bottom-5 right-5 z-50">
@@ -105,8 +105,23 @@ export const PersonaSwitcher = () => {
           </div>
 
           {/* 8-Level Hierarchy User List */}
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1">
-            The 8-Level Upline Chain:
+          <div className="flex items-center justify-between mb-1 px-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              The 8-Level Upline Chain:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Reset network to default seed and clear test users from local storage?")) {
+                  resetNetworkData();
+                }
+              }}
+              className="text-[10px] text-rose-600 hover:text-rose-700 font-bold hover:underline flex items-center gap-1 transition-colors"
+              title="Clear all test registered users and restore default 8-level chain"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Reset to Default</span>
+            </button>
           </div>
 
           <div className="overflow-y-auto space-y-1.5 pr-1 flex-1">
