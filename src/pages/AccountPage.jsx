@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   TreePine,
   User,
+  UserPlus,
   ChevronDown,
   Info
 } from 'lucide-react';
@@ -706,7 +707,7 @@ export const AccountPage = ({ initialTab }) => {
                           You haven't referred anyone yet. Share your referral code <strong className="font-mono text-[#0c6b37]">{currentUser.referralCode}</strong> to welcome your first direct member and activate Level 1 rewards!
                         </p>
                       </div>
-                      <div className="pt-1">
+                      <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
                         <button
                           type="button"
                           onClick={() => setShowShareModal(true)}
@@ -715,6 +716,13 @@ export const AccountPage = ({ initialTab }) => {
                           <Share2 className="w-3.5 h-3.5" />
                           <span>Invite Your Direct Member</span>
                         </button>
+                        <Link
+                          to={`/join?ref=${currentUser.referralCode}`}
+                          className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-[#0c6b37] border border-[#bbf7d0] font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-[#16a34a]" />
+                          <span>Direct Join on Website</span>
+                        </Link>
                       </div>
                     </div>
                   ) : (
@@ -999,16 +1007,14 @@ export const AccountPage = ({ initialTab }) => {
               >
                 <span>Share on WhatsApp</span>
               </a>
-              <a
-                href={`/join?ref=${currentUser.referralCode}`}
-                target="_blank"
-                rel="noreferrer"
+              <Link
+                to={`/join?ref=${currentUser.referralCode}`}
                 onClick={() => setShowShareModal(false)}
                 className="bg-[#0c6b37] hover:bg-[#0a5a2e] text-white font-bold text-xs py-2.5 px-3 rounded-xl text-center transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <UserPlus className="w-3.5 h-3.5" />
                 <span>Direct Join on Website</span>
-              </a>
+              </Link>
             </div>
           </div>
         </div>
